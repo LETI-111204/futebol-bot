@@ -14,4 +14,4 @@ COPY src src
 
 RUN ./gradlew build -x test
 
-CMD ["java", "-jar", "build/libs/futebol-bot-1.0.0.jar"]
+CMD ["./gradlew", "run", "--no-daemon"]
