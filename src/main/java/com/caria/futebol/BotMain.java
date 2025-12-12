@@ -20,16 +20,19 @@ public class BotMain extends ListenerAdapter {
     /** Base player list (the order used during attendance check). */
     private static final List<String> PLAYERS = List.of(
             "Caria",
-            "Boca Cheia",
+            "Tiago",
             "Filipe",
-            "Francisco Simão",
+            "Francisco",
             "Gui",
             "João",
-            "João Gambiarras",
             "Miguel",
-            "Pedro Martelo De Carca",
+            "Pedro",
             "Rodrigo",
-            "Salvador Chora e Mama"
+            "Salvador",
+            "Pipa",
+            "André",
+            "Fontes",
+            "Vasco"
     );
 
     /**
@@ -37,17 +40,21 @@ public class BotMain extends ListenerAdapter {
      * Any missing player defaults to 5.0.
      */
     private static final Map<String, Double> RANK = Map.ofEntries(
-            Map.entry("Caria", 7.5),
-            Map.entry("Boca Cheia", 6.8),
-            Map.entry("Filipe", 5.2),
-            Map.entry("Francisco Simão", 6.4),
-            Map.entry("Gui", 8.1),
-            Map.entry("João", 5.6),
-            Map.entry("João Gambiarras", 4.3),
-            Map.entry("Miguel", 7.7),
-            Map.entry("Pedro Martelo De Carca", 6.9),
-            Map.entry("Rodrigo", 5.4),
-            Map.entry("Salvador Chora e Mama", 3.8)
+            Map.entry("Caria", 71.9),
+            Map.entry("Tiago", 51.9),
+            Map.entry("Filipe", 58.1),
+            Map.entry("Francisco", 73.8),
+            Map.entry("Gui", 66.9),
+            Map.entry("João", 50.1),
+            Map.entry("Miguel", 67.3),
+            Map.entry("Pedro", 69.3),
+            Map.entry("Rodrigo", 56.4),
+            Map.entry("Salvador", 80.0),
+            Map.entry("Pipa", 49.3),
+            Map.entry("André", 55.1),
+            Map.entry("Fontes", 41.6),
+            Map.entry("Vasco", 73.9)
+
     );
 
     // =========================
