@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class BotMain extends ListenerAdapter {
 
     // =========================
-    // CONFIG: Players & Decimal Ranks (0.0–10.0)
+    // CONFIG: Players & Ranks
     // =========================
 
     /** Base player list (the order used during attendance check). */
@@ -36,7 +36,7 @@ public class BotMain extends ListenerAdapter {
     );
 
     /**
-     * Player ranks with decimals allowed.
+     * Player ranks.
      * Any missing player defaults to 5.0.
      */
     private static final Map<String, Double> RANK = Map.ofEntries(
@@ -54,7 +54,6 @@ public class BotMain extends ListenerAdapter {
             Map.entry("André", 55.1),
             Map.entry("Fontes", 41.6),
             Map.entry("Vasco", 73.9)
-
     );
 
     // =========================
@@ -78,12 +77,6 @@ public class BotMain extends ListenerAdapter {
     private static final String BTN_YES = "att:yes";
     private static final String BTN_NO  = "att:no";
 
-    /**
-     * If >10 confirmed players, /teams tries many random sets of 10
-     * to find the best balance.
-     */
-    private static final int PICK_10_TRIES = 4000;
-
     // =========================
     // Bot entry point
     // =========================
@@ -104,10 +97,9 @@ public class BotMain extends ListenerAdapter {
         jda.awaitReady();
 
         // Register slash commands (GLOBAL). It can take a few minutes to appear.
-        // If you already had old commands, they should update after propagation.
         jda.updateCommands().addCommands(
                 Commands.slash("futebol", "Start attendance check (fixed panel with buttons)"),
-                Commands.slash("teams", "Generate fair 5v5 teams using decimal ranks (0.0–10.0)"),
+                Commands.slash("teams", "Generate optimal fair 5v5 teams using ranks"),
                 Commands.slash("remake", "Remake teams (random, may be less fair)")
         ).queue();
 
@@ -154,10 +146,10 @@ public class BotMain extends ListenerAdapter {
     }
 
     /**
-     * /teams: fair fixed 5v5 (10 players).
+     * /teams: OPTIMAL fixed 5v5 (10 players).
      * - If <10 confirmed: warns
-     * - If =10: balance and output
-     * - If >10: pick best 10 (many tries), list substitutes
+     * - If =10: optimal balance and output
+     * - If >10: pick best 10 (EXACT), list substitutes
      */
     private void generateFairTeams(SlashCommandInteractionEvent event) {
         String channelId = event.getChannel().getId();
@@ -175,11 +167,11 @@ public class BotMain extends ListenerAdapter {
             return;
         }
 
-        Pick10Result pick = pickBest10ForBalance(confirmed);
-        Teams teams = splitIntoBalanced5v5(pick.tenChosen);
+        Pick10Result pick = pickBest10ForBalanceExact(confirmed);
+        Teams teams = splitIntoOptimal5v5(pick.tenChosen);
 
         event.reply(formatTeamsMessage(
-                "🎲 **Fair Teams (Fixed 5v5)**",
+                "🎯 **Optimal Fair Teams (Fixed 5v5)**",
                 teams,
                 pick.substitutes,
                 pick.bestDiffFound,
@@ -319,7 +311,7 @@ public class BotMain extends ListenerAdapter {
         sb.append("\n**Not going (").append(s.notGoing.size()).append("):**\n");
         for (String n : s.notGoing) sb.append("- ").append(n).append("\n");
 
-        sb.append("\nRun **/teams** for fair teams or **/remake** to reshuffle randomly.");
+        sb.append("\nRun **/teams** for optimal fair teams or **/remake** to reshuffle randomly.");
         return sb.toString();
     }
 
@@ -348,85 +340,130 @@ public class BotMain extends ListenerAdapter {
         }
     }
 
-    private static Pick10Result pickBest10ForBalance(List<String> confirmed) {
+    /**
+     * EXACT best-10 selection:
+     * - if exactly 10: just split optimal
+     * - if 11..20: enumerate ALL subsets of size 10 (bitmask), for each do optimal 5v5, pick best diff
+     * - if >20: fallback to random search (still uses optimal split for each random 10)
+     */
+    private static Pick10Result pickBest10ForBalanceExact(List<String> confirmed) {
         List<String> list = new ArrayList<>(confirmed);
 
         if (list.size() == 10) {
-            Teams t = splitIntoBalanced5v5(list);
+            Teams t = splitIntoOptimal5v5(list);
             double diff = Math.abs(t.sumA - t.sumB);
             return new Pick10Result(list, List.of(), diff);
         }
 
-        Random rnd = new Random();
+        int n = list.size();
+        if (n < 10) throw new IllegalArgumentException("Need at least 10 players");
+
         double bestDiff = Double.MAX_VALUE;
         List<String> bestTen = null;
 
-        for (int i = 0; i < PICK_10_TRIES; i++) {
-            Collections.shuffle(list, rnd);
-            List<String> ten = new ArrayList<>(list.subList(0, 10));
+        if (n <= 20) {
+            int limit = 1 << n;
 
-            Teams teams = splitIntoBalanced5v5(ten);
-            double diff = Math.abs(teams.sumA - teams.sumB);
+            for (int mask = 0; mask < limit; mask++) {
+                if (Integer.bitCount(mask) != 10) continue;
 
-            if (diff < bestDiff) {
-                bestDiff = diff;
-                bestTen = ten;
-                if (bestDiff < 0.05) break;
+                List<String> ten = new ArrayList<>(10);
+                for (int i = 0; i < n; i++) {
+                    if ((mask & (1 << i)) != 0) ten.add(list.get(i));
+                }
+
+                Teams t = splitIntoOptimal5v5(ten);
+                double diff = Math.abs(t.sumA - t.sumB);
+
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    bestTen = ten;
+                    if (bestDiff == 0.0) break;
+                }
+            }
+        } else {
+            // Fallback random search for very large groups
+            Random rnd = new Random();
+            for (int i = 0; i < 8000; i++) {
+                Collections.shuffle(list, rnd);
+                List<String> ten = new ArrayList<>(list.subList(0, 10));
+
+                Teams t = splitIntoOptimal5v5(ten);
+                double diff = Math.abs(t.sumA - t.sumB);
+
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    bestTen = ten;
+                    if (bestDiff < 0.01) break;
+                }
             }
         }
 
-        if (bestTen == null) {
-            bestTen = new ArrayList<>(list.subList(0, 10));
-            Teams t = splitIntoBalanced5v5(bestTen);
-            bestDiff = Math.abs(t.sumA - t.sumB);
-        }
+        if (bestTen == null) bestTen = new ArrayList<>(list.subList(0, 10));
 
         Set<String> setTen = new HashSet<>(bestTen);
         List<String> subs = new ArrayList<>();
-        for (String n : confirmed) {
-            if (!setTen.contains(n)) subs.add(n);
+        for (String p : confirmed) {
+            if (!setTen.contains(p)) subs.add(p);
         }
 
         return new Pick10Result(bestTen, subs, bestDiff);
     }
 
-    private static Teams splitIntoBalanced5v5(List<String> tenPlayers) {
+    /**
+     * OPTIMAL 5v5 split for exactly 10 players.
+     * Enumerates all C(10,5)=252 combinations and picks the minimum |sumA - sumB|.
+     */
+    private static Teams splitIntoOptimal5v5(List<String> tenPlayers) {
+        if (tenPlayers.size() != 10) throw new IllegalArgumentException("Expected exactly 10 players");
+
         List<String> list = new ArrayList<>(tenPlayers);
 
-        // Shuffle first so ties produce variety
-        Collections.shuffle(list);
+        double total = 0.0;
+        for (String p : list) total += rankOf(p);
 
-        // Sort by rank descending
-        list.sort((x, y) -> Double.compare(rankOf(y), rankOf(x)));
+        Teams best = null;
+        double bestDiff = Double.MAX_VALUE;
 
-        Teams t = new Teams();
+        int n = 10;
+        int limit = 1 << n;
 
-        for (String name : list) {
-            double r = rankOf(name);
+        for (int mask = 0; mask < limit; mask++) {
+            if (Integer.bitCount(mask) != 5) continue;
 
-            // Enforce exactly 5 players per team
-            if (t.teamA.size() >= 5) {
-                t.teamB.add(name);
-                t.sumB += r;
-                continue;
+            double sumA = 0.0;
+            List<String> teamA = new ArrayList<>(5);
+            List<String> teamB = new ArrayList<>(5);
+
+            for (int i = 0; i < n; i++) {
+                String name = list.get(i);
+                if ((mask & (1 << i)) != 0) {
+                    teamA.add(name);
+                    sumA += rankOf(name);
+                } else {
+                    teamB.add(name);
+                }
             }
-            if (t.teamB.size() >= 5) {
-                t.teamA.add(name);
-                t.sumA += r;
-                continue;
-            }
 
-            // Greedy balance
-            if (t.sumA <= t.sumB) {
-                t.teamA.add(name);
-                t.sumA += r;
-            } else {
-                t.teamB.add(name);
-                t.sumB += r;
+            double sumB = total - sumA;
+            double diff = Math.abs(sumA - sumB);
+
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                Teams t = new Teams();
+                t.teamA = teamA;
+                t.teamB = teamB;
+                t.sumA = sumA;
+                t.sumB = sumB;
+                best = t;
+
+                if (bestDiff == 0.0) break;
             }
         }
 
-        return t;
+        // Pequeno "baralhar" opcional: se quiseres variar ordem interna sem alterar equipas,
+        // podes baralhar teamA/teamB aqui.
+        return best;
     }
 
     /** Random split (fixed 5v5). Not optimized for fairness. */
